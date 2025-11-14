@@ -1,0 +1,306 @@
+import { fileURLToPath } from "url";
+import fs from "fs";
+import path from "path";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const DATA_FILE = path.join(__dirname, "data", "words.json");
+
+// 初始化 kuroshiro（單例模式）
+let kuroshiroInstance = null;
+let kuroshiroInitialized = false;
+
+const initKuroshiro = async () => {
+  if (kuroshiroInitialized && kuroshiroInstance) {
+    return kuroshiroInstance;
+  }
+
+  try {
+    console.log("[API] 開始初始化 kuroshiro...");
+
+    // 動態導入 kuroshiro 和 analyzer
+    const KuroshiroModule = await import("kuroshiro");
+    const KuromojiAnalyzerModule = await import("kuroshiro-analyzer-kuromoji");
+
+    // 處理 ES modules 導入（kuroshiro 有雙層 default）
+    const Kuroshiro =
+      KuroshiroModule.default?.default ||
+      KuroshiroModule.default ||
+      KuroshiroModule;
+    const KuromojiAnalyzer =
+      KuromojiAnalyzerModule.default?.default ||
+      KuromojiAnalyzerModule.default ||
+      KuromojiAnalyzerModule;
+
+    console.log("[API] Kuroshiro 類型:", typeof Kuroshiro);
+    console.log("[API] Kuroshiro 是函數:", typeof Kuroshiro === "function");
+    console.log("[API] 創建 Kuroshiro 實例...");
+
+    if (typeof Kuroshiro !== "function") {
+      throw new Error(
+        `Kuroshiro is not a constructor. Type: ${typeof Kuroshiro}, Value: ${Kuroshiro}`
+      );
+    }
+
+    const kuroshiro = new Kuroshiro();
+
+    console.log("[API] 創建 KuromojiAnalyzer...");
+
+    // 指定字典路徑
+    const dictPath = path.join(__dirname, "node_modules", "kuromoji", "dict");
+    console.log("[API] 字典路徑:", dictPath);
+
+    const analyzer = new KuromojiAnalyzer({
+      dictPath: dictPath,
+    });
+
+    console.log("[API] 初始化 kuroshiro...");
+    await kuroshiro.init(analyzer);
+    console.log("[API] kuroshiro 初始化成功！");
+    kuroshiroInstance = kuroshiro;
+    kuroshiroInitialized = true;
+    return kuroshiro;
+  } catch (error) {
+    console.error("[API] 初始化 kuroshiro 失敗:", error);
+    console.error("[API] 錯誤訊息:", error.message);
+    console.error("[API] 錯誤堆疊:", error.stack);
+    return null;
+  }
+};
+
+// 檢查是否包含漢字
+const hasKanji = (text) => {
+  return /[\u4e00-\u9faf\u3400-\u4dbf]/.test(text);
+};
+
+export function apiPlugin() {
+  return {
+    name: "api-plugin",
+    configureServer(server) {
+      // 統一路由處理
+      server.middlewares.use("/api/words", (req, res, next) => {
+        const urlParts = req.url.split("/").filter(Boolean);
+        const id = urlParts.length > 0 ? urlParts[urlParts.length - 1] : null;
+        const isIdRoute = id && id !== "words";
+
+        // 確保資料檔案存在
+        if (!fs.existsSync(DATA_FILE)) {
+          fs.writeFileSync(DATA_FILE, "[]", "utf-8");
+        }
+
+        // GET /api/words - 讀取所有單字
+        if (req.method === "GET" && !isIdRoute) {
+          try {
+            const data = fs.readFileSync(DATA_FILE, "utf-8");
+            res.setHeader("Content-Type", "application/json");
+            res.setHeader("Access-Control-Allow-Origin", "*");
+            res.end(data);
+          } catch (error) {
+            res.statusCode = 500;
+            res.end(JSON.stringify({ error: error.message }));
+          }
+          return;
+        }
+
+        // POST /api/words - 新增單字
+        if (req.method === "POST" && !isIdRoute) {
+          let body = "";
+          req.on("data", (chunk) => {
+            body += chunk.toString();
+          });
+          req.on("end", () => {
+            try {
+              const words = JSON.parse(fs.readFileSync(DATA_FILE, "utf-8"));
+              const newWord = JSON.parse(body);
+              newWord.id = newWord.id || Date.now().toString();
+              newWord.createdAt = newWord.createdAt || Date.now();
+              words.push(newWord);
+              fs.writeFileSync(
+                DATA_FILE,
+                JSON.stringify(words, null, 2),
+                "utf-8"
+              );
+              res.setHeader("Content-Type", "application/json");
+              res.setHeader("Access-Control-Allow-Origin", "*");
+              res.end(JSON.stringify(newWord));
+            } catch (error) {
+              res.statusCode = 500;
+              res.end(JSON.stringify({ error: error.message }));
+            }
+          });
+          return;
+        }
+
+        // DELETE /api/words/:id - 刪除單字
+        if (req.method === "DELETE" && isIdRoute) {
+          try {
+            const words = JSON.parse(fs.readFileSync(DATA_FILE, "utf-8"));
+            const filtered = words.filter((word) => word.id !== id);
+            fs.writeFileSync(
+              DATA_FILE,
+              JSON.stringify(filtered, null, 2),
+              "utf-8"
+            );
+            res.setHeader("Content-Type", "application/json");
+            res.setHeader("Access-Control-Allow-Origin", "*");
+            res.end(JSON.stringify({ success: true }));
+          } catch (error) {
+            res.statusCode = 500;
+            res.end(JSON.stringify({ error: error.message }));
+          }
+          return;
+        }
+
+        // PUT /api/words/:id - 更新單字
+        if (req.method === "PUT" && isIdRoute) {
+          let body = "";
+          req.on("data", (chunk) => {
+            body += chunk.toString();
+          });
+          req.on("end", () => {
+            try {
+              const words = JSON.parse(fs.readFileSync(DATA_FILE, "utf-8"));
+              const index = words.findIndex((word) => word.id === id);
+              if (index !== -1) {
+                const updatedWord = JSON.parse(body);
+                words[index] = { ...words[index], ...updatedWord };
+                fs.writeFileSync(
+                  DATA_FILE,
+                  JSON.stringify(words, null, 2),
+                  "utf-8"
+                );
+                res.setHeader("Content-Type", "application/json");
+                res.setHeader("Access-Control-Allow-Origin", "*");
+                res.end(JSON.stringify(words[index]));
+              } else {
+                res.statusCode = 404;
+                res.end(JSON.stringify({ error: "Word not found" }));
+              }
+            } catch (error) {
+              res.statusCode = 500;
+              res.end(JSON.stringify({ error: error.message }));
+            }
+          });
+          return;
+        }
+
+        next();
+      });
+
+      // POST /api/convert - 轉換日文
+      server.middlewares.use("/api/convert", async (req, res, next) => {
+        if (req.method === "POST") {
+          let body = "";
+          req.on("data", (chunk) => {
+            body += chunk.toString();
+          });
+          req.on("end", async () => {
+            try {
+              const { text } = JSON.parse(body);
+              console.log("[API] 收到轉換請求，文字:", text);
+
+              if (!text || text.trim() === "") {
+                res.statusCode = 400;
+                res.end(JSON.stringify({ error: "Text is required" }));
+                return;
+              }
+
+              const trimmedText = text.trim();
+              console.log(
+                "[API] 處理文字:",
+                trimmedText,
+                "包含漢字:",
+                hasKanji(trimmedText)
+              );
+
+              // 如果包含漢字，使用 kuroshiro 轉換
+              if (hasKanji(trimmedText)) {
+                console.log("[API] 開始初始化 kuroshiro...");
+                const kuroshiro = await initKuroshiro();
+                if (kuroshiro) {
+                  console.log("[API] kuroshiro 初始化成功，開始轉換...");
+                  console.log("[API] 轉換文字:", trimmedText);
+
+                  try {
+                    const hiragana = await kuroshiro.convert(trimmedText, {
+                      to: "hiragana",
+                    });
+                    console.log("[API] 平假名轉換結果:", hiragana);
+
+                    const katakana = await kuroshiro.convert(trimmedText, {
+                      to: "katakana",
+                    });
+                    console.log("[API] 片假名轉換結果:", katakana);
+
+                    const romaji = await kuroshiro.convert(trimmedText, {
+                      to: "romaji",
+                    });
+                    console.log("[API] 羅馬拼音轉換結果:", romaji);
+
+                    console.log("[API] 完整轉換結果:", {
+                      hiragana,
+                      katakana,
+                      romaji,
+                    });
+
+                    res.setHeader("Content-Type", "application/json");
+                    res.setHeader("Access-Control-Allow-Origin", "*");
+                    res.end(
+                      JSON.stringify({
+                        hiragana: hiragana || "",
+                        katakana: katakana || "",
+                        romaji: romaji || "",
+                      })
+                    );
+                  } catch (convertError) {
+                    console.error("[API] 轉換過程出錯:", convertError);
+                    console.error("[API] 轉換錯誤堆疊:", convertError.stack);
+                    res.setHeader("Content-Type", "application/json");
+                    res.setHeader("Access-Control-Allow-Origin", "*");
+                    res.end(
+                      JSON.stringify({
+                        hiragana: "",
+                        katakana: "",
+                        romaji: "",
+                      })
+                    );
+                  }
+                } else {
+                  console.error("[API] kuroshiro 初始化失敗，返回空值");
+                  // 初始化失敗時，返回空值讓前端使用 wanakana 處理
+                  res.setHeader("Content-Type", "application/json");
+                  res.setHeader("Access-Control-Allow-Origin", "*");
+                  res.end(
+                    JSON.stringify({
+                      hiragana: "",
+                      katakana: "",
+                      romaji: "",
+                    })
+                  );
+                }
+              } else {
+                // 如果不包含漢字，回傳空值（前端會用 wanakana 處理）
+                console.log("[API] 不包含漢字，回傳空值");
+                res.setHeader("Content-Type", "application/json");
+                res.setHeader("Access-Control-Allow-Origin", "*");
+                res.end(
+                  JSON.stringify({
+                    hiragana: "",
+                    katakana: "",
+                    romaji: "",
+                  })
+                );
+              }
+            } catch (error) {
+              console.error("[API] 處理錯誤:", error);
+              res.statusCode = 500;
+              res.end(JSON.stringify({ error: error.message }));
+            }
+          });
+          return;
+        }
+        next();
+      });
+    },
+  };
+}
