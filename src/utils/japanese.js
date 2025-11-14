@@ -143,14 +143,167 @@ const getJapaneseVoice = () => {
 };
 
 /**
- * 播放日文發音
+ * 播放日文發音（使用 Google Translate TTS）
  * @param {string} text - 要播放的日文文字
+ * @param {string} hiragana - 可選的平假名（如果提供，優先使用）
  */
-export const speakJapanese = (text) => {
+export const speakJapanese = async (text, hiragana = null) => {
   if (!text || text.trim() === "") {
     return;
   }
 
+  // 優先使用提供的平假名
+  let textToSpeak = hiragana && hiragana.trim() ? hiragana.trim() : text.trim();
+
+  // 如果沒有提供平假名，且文字包含漢字，嘗試轉換為平假名
+  if (!hiragana && hasKanji(textToSpeak)) {
+    try {
+      const converted = await processJapanese(textToSpeak);
+      if (converted.hiragana && converted.hiragana.trim()) {
+        textToSpeak = converted.hiragana.trim();
+        console.log("轉換為平假名:", textToSpeak);
+      }
+    } catch (error) {
+      console.warn("轉換為平假名失敗，使用原始文字:", error);
+      // 轉換失敗時使用原始文字
+    }
+  }
+
+  // Google Translate TTS 有長度限制（約 200 字元），如果文字太長需要分段
+  const MAX_LENGTH = 200;
+
+  if (textToSpeak.length <= MAX_LENGTH) {
+    // 文字不長，直接播放
+    playGoogleTTS(textToSpeak);
+  } else {
+    // 文字太長，分段播放
+    // 嘗試在句號、逗號或空格處分段
+    const segments = splitTextForTTS(textToSpeak, MAX_LENGTH);
+    playSegmentsSequentially(segments, 0);
+  }
+};
+
+/**
+ * 使用 Google Translate TTS 播放文字（通過後端代理）
+ * @param {string} text - 要播放的文字
+ */
+const playGoogleTTS = (text) => {
+  try {
+    // 通過後端 API 代理 Google TTS，避免 CORS 問題
+    const encodedText = encodeURIComponent(text);
+    const ttsUrl = `/api/tts?text=${encodedText}`;
+
+    console.log("使用 Google TTS 播放（通過後端代理）:", text);
+
+    // 創建音頻元素並播放
+    const audio = new Audio(ttsUrl);
+
+    audio.onloadstart = () => {
+      console.log("開始載入 Google TTS 音頻");
+    };
+
+    audio.oncanplay = () => {
+      console.log("Google TTS 音頻可以播放");
+    };
+
+    audio.onerror = (e) => {
+      console.error("Google TTS 播放失敗:", e);
+      console.error("錯誤詳情:", audio.error);
+      // 如果 Google TTS 失敗，回退到 Web Speech API
+      fallbackToWebSpeech(text);
+    };
+
+    audio.onended = () => {
+      console.log("Google TTS 播放完成");
+    };
+
+    audio.play().catch((error) => {
+      console.error("播放語音失敗:", error);
+      // 如果 Google TTS 失敗，回退到 Web Speech API
+      fallbackToWebSpeech(text);
+    });
+  } catch (error) {
+    console.error("語音播放錯誤:", error);
+    // 回退到 Web Speech API
+    fallbackToWebSpeech(text);
+  }
+};
+
+/**
+ * 將長文字分段（盡量在標點符號處分段）
+ * @param {string} text - 要分段的文字
+ * @param {number} maxLength - 每段最大長度
+ * @returns {string[]} 分段後的文字陣列
+ */
+const splitTextForTTS = (text, maxLength) => {
+  const segments = [];
+  let currentIndex = 0;
+
+  while (currentIndex < text.length) {
+    let segmentEnd = currentIndex + maxLength;
+
+    // 如果還沒到文字結尾，嘗試在標點符號處分段
+    if (segmentEnd < text.length) {
+      // 尋找最近的句號、逗號或空格
+      const punctuation = text.lastIndexOf("。", segmentEnd);
+      const comma = text.lastIndexOf("、", segmentEnd);
+      const space = text.lastIndexOf(" ", segmentEnd);
+
+      const bestBreak = Math.max(punctuation, comma, space);
+      if (bestBreak > currentIndex) {
+        segmentEnd = bestBreak + 1;
+      }
+    } else {
+      segmentEnd = text.length;
+    }
+
+    segments.push(text.substring(currentIndex, segmentEnd).trim());
+    currentIndex = segmentEnd;
+  }
+
+  return segments.filter((seg) => seg.length > 0);
+};
+
+/**
+ * 依序播放多個文字片段
+ * @param {string[]} segments - 文字片段陣列
+ * @param {number} index - 當前要播放的片段索引
+ */
+const playSegmentsSequentially = (segments, index) => {
+  if (index >= segments.length) {
+    return;
+  }
+
+  const audio = new Audio();
+  const encodedText = encodeURIComponent(segments[index]);
+  // 通過後端 API 代理
+  audio.src = `/api/tts?text=${encodedText}`;
+
+  audio.onended = () => {
+    // 播放下一段
+    playSegmentsSequentially(segments, index + 1);
+  };
+
+  audio.onerror = () => {
+    console.error(`播放片段 ${index + 1} 失敗，回退到 Web Speech API`);
+    // 回退到 Web Speech API 播放剩餘內容
+    const remainingText = segments.slice(index).join("");
+    fallbackToWebSpeech(remainingText);
+  };
+
+  audio.play().catch((error) => {
+    console.error("播放語音失敗:", error);
+    // 回退到 Web Speech API
+    const remainingText = segments.slice(index).join("");
+    fallbackToWebSpeech(remainingText);
+  });
+};
+
+/**
+ * 回退到 Web Speech API（當 Google TTS 不可用時）
+ * @param {string} text - 要播放的日文文字
+ */
+const fallbackToWebSpeech = (text) => {
   if (!("speechSynthesis" in window)) {
     console.warn("此瀏覽器不支援語音合成功能");
     return;

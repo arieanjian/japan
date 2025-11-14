@@ -2,15 +2,16 @@ import { speakJapanese, addSpacesToRomaji } from '../utils/japanese';
 
 const WordCard = ({ word, onDelete, onEdit }) => {
   const handlePlay = () => {
-    // 優先播放日文，如果沒有則播放平假名
-    const textToSpeak = word.japanese || word.hiragana || word.chinese;
+    // 優先使用平假名播放，如果沒有平假名則使用日文，最後才用中文
+    const textToSpeak = word.hiragana || word.japanese || word.chinese;
     if (textToSpeak) {
-      speakJapanese(textToSpeak);
+      speakJapanese(textToSpeak, word.hiragana);
     }
   };
 
   const handlePlayExample = () => {
-    // 播放例句的日文發音
+    // 播放例句的日文發音，優先使用平假名
+    // 如果 exampleJapanese 是平假名，直接使用；如果是漢字，speakJapanese 會自動轉換
     const textToSpeak = word.exampleJapanese || word.example || word.chinese;
     if (textToSpeak) {
       speakJapanese(textToSpeak);

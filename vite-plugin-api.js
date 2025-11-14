@@ -1,5 +1,7 @@
 import { fileURLToPath } from "url";
 import fs from "fs";
+import https from "https";
+import { parse as parseUrl } from "url";
 import path from "path";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -184,6 +186,80 @@ export function apiPlugin() {
           return;
         }
 
+        next();
+      });
+
+      // GET /api/tts - Google TTS 代理
+      server.middlewares.use("/api/tts", async (req, res, next) => {
+        if (req.method === "GET") {
+          try {
+            // 解析 URL 參數
+            const urlObj = parseUrl(req.url, true);
+            const text = urlObj.query?.text;
+
+            if (!text) {
+              res.statusCode = 400;
+              res.end(JSON.stringify({ error: "Text parameter is required" }));
+              return;
+            }
+
+            const decodedText = decodeURIComponent(text);
+            console.log("[API] TTS 請求，文字:", decodedText);
+
+            // 使用 Google Translate TTS API
+            const encodedText = encodeURIComponent(decodedText);
+            const ttsUrl = `https://translate.google.com/translate_tts?ie=UTF-8&tl=ja&client=tw-ob&textlen=${decodedText.length}&q=${encodedText}`;
+
+            console.log("[API] 請求 Google TTS URL:", ttsUrl);
+
+            // 使用 Node.js 的 https 模組來獲取音頻
+            const parsedUrl = parseUrl(ttsUrl);
+            const options = {
+              hostname: parsedUrl.hostname,
+              path: parsedUrl.path,
+              method: "GET",
+              headers: {
+                "User-Agent":
+                  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                Referer: "https://translate.google.com/",
+                Accept:
+                  "audio/webm,audio/ogg,audio/wav,audio/*;q=0.9,application/ogg;q=0.7,video/*;q=0.6,*/*;q=0.5",
+              },
+            };
+
+            https
+              .get(options, (ttsRes) => {
+                // 檢查響應狀態
+                if (ttsRes.statusCode !== 200) {
+                  console.error("[API] TTS 響應狀態碼:", ttsRes.statusCode);
+                  res.statusCode = ttsRes.statusCode;
+                  res.end(JSON.stringify({ error: "TTS request failed" }));
+                  return;
+                }
+
+                // 設置響應頭
+                res.setHeader(
+                  "Content-Type",
+                  ttsRes.headers["content-type"] || "audio/mpeg"
+                );
+                res.setHeader("Access-Control-Allow-Origin", "*");
+                res.setHeader("Cache-Control", "no-cache");
+
+                // 轉發音頻數據
+                ttsRes.pipe(res);
+              })
+              .on("error", (error) => {
+                console.error("[API] TTS 請求失敗:", error);
+                res.statusCode = 500;
+                res.end(JSON.stringify({ error: "TTS request failed" }));
+              });
+          } catch (error) {
+            console.error("[API] TTS 處理錯誤:", error);
+            res.statusCode = 500;
+            res.end(JSON.stringify({ error: error.message }));
+          }
+          return;
+        }
         next();
       });
 
