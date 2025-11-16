@@ -7,4 +7,5 @@ export const CATEGORIES = [
   "打招呼",
   "旅遊相關",
   "天氣",
+  "時間相關",
 ];

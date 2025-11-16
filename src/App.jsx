@@ -9,6 +9,7 @@ function App() {
   const [refreshKey, setRefreshKey] = useState(0);
   const [editingWord, setEditingWord] = useState(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [selectedCategory, setSelectedCategory] = useState("全部");
 
   const handleWordAdded = () => {
     // 觸發自訂事件，通知 WordList 重新載入
@@ -59,6 +60,8 @@ function App() {
           key={refreshKey}
           onEditWord={handleEditWord}
           onAddNew={handleAddNew}
+          selectedCategory={selectedCategory}
+          onCategoryChange={setSelectedCategory}
         />
       </main>
 

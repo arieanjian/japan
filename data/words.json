@@ -10,7 +10,8 @@
     "exampleJapanese": "電車に乗る",
     "exampleRomaji": "denshaninoru",
     "id": "1762874282063",
-    "createdAt": 1762874282063
+    "createdAt": 1762874282063,
+    "exampleNote": ""
   },
   {
     "chinese": "地鐵；捷運",
@@ -160,7 +161,7 @@
     "romaji": "fuyu",
     "example": "冬天很冷",
     "exampleJapanese": "ふゆはさむい",
-    "exampleRomaji": "fuyuhasamui",
+    "exampleRomaji": "fuyu wa sa mui",
     "exampleNote": "冬は寒い (fu yu wa sa mu i)",
     "id": "1762933200109",
     "createdAt": 1762933200109
@@ -192,5 +193,75 @@
     "exampleNote": "雪が好き ( yuki ga suki )",
     "id": "1762933455783",
     "createdAt": 1762933455783
+  },
+  {
+    "chinese": "晴天",
+    "category": "天氣",
+    "japanese": "晴れ",
+    "hiragana": "はれ",
+    "katakana": "ハレ",
+    "romaji": "hare",
+    "example": "晴天比較好",
+    "exampleJapanese": "晴れがいい",
+    "exampleRomaji": "haregaii",
+    "exampleNote": "はれがいい(hare ga ii)",
+    "id": "1763107542703",
+    "createdAt": 1763107542704
+  },
+  {
+    "chinese": "風",
+    "category": "天氣",
+    "japanese": "風",
+    "hiragana": "かぜ",
+    "katakana": "カゼ",
+    "romaji": "kaze",
+    "example": "風在吹",
+    "exampleJapanese": "風が吹く",
+    "exampleRomaji": "kazegafuku",
+    "exampleNote": "かぜがふく(kaze ga fuku)",
+    "id": "1763107639888",
+    "createdAt": 1763107639888
+  },
+  {
+    "chinese": "陰天",
+    "category": "天氣",
+    "japanese": "曇り",
+    "hiragana": "くもり",
+    "katakana": "クモリ",
+    "romaji": "kumori",
+    "example": "今天是陰天",
+    "exampleJapanese": "今日は曇り",
+    "exampleRomaji": "kyōwakumori",
+    "exampleNote": "きょうはくもり(kyō wa kumori)",
+    "id": "1763107777939",
+    "createdAt": 1763107777939
+  },
+  {
+    "chinese": "飯; 米飯",
+    "category": "食物",
+    "japanese": "ご飯",
+    "hiragana": "ごはん",
+    "katakana": "ゴハン",
+    "romaji": "gohan",
+    "example": "今天的飯很好吃",
+    "exampleJapanese": "今日はご飯が美味しい",
+    "exampleRomaji": "kyōwagohangaoishii",
+    "exampleNote": "きょうはごはんがおいしい\n(kyō wa gohan ga oishii)",
+    "id": "1763107905880",
+    "createdAt": 1763107905880
+  },
+  {
+    "chinese": "早餐",
+    "category": "食物",
+    "japanese": "朝ご飯",
+    "hiragana": "あさごはん",
+    "katakana": "アサゴハン",
+    "romaji": "asagohan",
+    "example": "今天的早餐是麵包",
+    "exampleJapanese": "今日の朝ご飯はパン",
+    "exampleRomaji": "kyōnoasagohanwapan",
+    "exampleNote": "きょうのあさごはんはぱん(kyō no asagohan wa pan)",
+    "id": "1763108087157",
+    "createdAt": 1763108087157
   }
 ]

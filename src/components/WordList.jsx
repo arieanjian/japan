@@ -4,10 +4,9 @@ import { useEffect, useState } from "react";
 import { CATEGORIES } from "../utils/categories";
 import WordCard from "./WordCard";
 
-const WordList = ({ onEditWord, onAddNew }) => {
+const WordList = ({ onEditWord, onAddNew, selectedCategory, onCategoryChange }) => {
   const [words, setWords] = useState([]);
   const [filteredWords, setFilteredWords] = useState([]);
-  const [selectedCategory, setSelectedCategory] = useState("全部");
   const [loading, setLoading] = useState(true);
 
   const loadWords = async () => {
@@ -15,6 +14,7 @@ const WordList = ({ onEditWord, onAddNew }) => {
       const storedWords = await getWords();
       // 保持文件中的原始順序
       setWords(storedWords);
+      // 使用當前的 selectedCategory（從 props 傳入）來篩選
       filterWords(storedWords, selectedCategory);
     } catch (error) {
       console.error("載入單字失敗:", error);
@@ -34,9 +34,16 @@ const WordList = ({ onEditWord, onAddNew }) => {
 
   const handleCategoryChange = (e) => {
     const category = e.target.value;
-    setSelectedCategory(category);
+    onCategoryChange(category);
     filterWords(words, category);
   };
+
+  // 當 selectedCategory 改變時，重新篩選現有的單字
+  useEffect(() => {
+    if (words.length > 0) {
+      filterWords(words, selectedCategory);
+    }
+  }, [selectedCategory]);
 
   useEffect(() => {
     loadWords();
@@ -50,7 +57,7 @@ const WordList = ({ onEditWord, onAddNew }) => {
     return () => {
       window.removeEventListener("wordAdded", handleWordAdded);
     };
-  }, []);
+  }, []); // 只在組件掛載時執行一次
 
   const handleDelete = async (id) => {
     if (window.confirm("確定要刪除這個單字嗎？")) {
