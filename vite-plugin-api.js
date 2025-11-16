@@ -6,7 +6,7 @@ import path from "path";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-const DATA_FILE = path.join(__dirname, "data", "words.json");
+const DATA_FILE = path.join(__dirname, "src", "data", "words.json");
 
 // 初始化 kuroshiro（單例模式）
 let kuroshiroInstance = null;
@@ -75,10 +75,8 @@ const hasKanji = (text) => {
   return /[\u4e00-\u9faf\u3400-\u4dbf]/.test(text);
 };
 
-export function apiPlugin() {
-  return {
-    name: "api-plugin",
-    configureServer(server) {
+// 設置 API 中間件的函數（可在 dev 和 preview 模式下共用）
+function setupApiMiddlewares(server) {
       // 統一路由處理
       server.middlewares.use("/api/words", (req, res, next) => {
         const urlParts = req.url.split("/").filter(Boolean);
@@ -191,6 +189,16 @@ export function apiPlugin() {
 
       // GET /api/tts - Google TTS 代理
       server.middlewares.use("/api/tts", async (req, res, next) => {
+        // 處理 CORS preflight 請求
+        if (req.method === "OPTIONS") {
+          res.setHeader("Access-Control-Allow-Origin", "*");
+          res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
+          res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+          res.statusCode = 200;
+          res.end();
+          return;
+        }
+
         if (req.method === "GET") {
           try {
             // 解析 URL 參數
@@ -232,26 +240,71 @@ export function apiPlugin() {
                 // 檢查響應狀態
                 if (ttsRes.statusCode !== 200) {
                   console.error("[API] TTS 響應狀態碼:", ttsRes.statusCode);
-                  res.statusCode = ttsRes.statusCode;
-                  res.end(JSON.stringify({ error: "TTS request failed" }));
+                  if (!res.headersSent) {
+                    res.statusCode = ttsRes.statusCode;
+                    res.end(JSON.stringify({ error: "TTS request failed" }));
+                  }
                   return;
                 }
 
-                // 設置響應頭
-                res.setHeader(
-                  "Content-Type",
-                  ttsRes.headers["content-type"] || "audio/mpeg"
+                // 獲取內容類型，優先使用 Google 返回的類型
+                let contentType =
+                  ttsRes.headers["content-type"] || "audio/mpeg";
+                console.log("[API] TTS 響應 Content-Type:", contentType);
+                console.log("[API] TTS 響應狀態碼:", ttsRes.statusCode);
+                console.log(
+                  "[API] TTS 響應頭:",
+                  JSON.stringify(ttsRes.headers, null, 2)
                 );
-                res.setHeader("Access-Control-Allow-Origin", "*");
-                res.setHeader("Cache-Control", "no-cache");
 
-                // 轉發音頻數據
+                // 如果 Google 返回的格式不被瀏覽器支持，嘗試強制使用 mp3
+                // 檢查是否是瀏覽器不支持的格式
+                if (
+                  !contentType.includes("mp3") &&
+                  !contentType.includes("mpeg") &&
+                  !contentType.includes("webm") &&
+                  !contentType.includes("ogg") &&
+                  !contentType.includes("wav")
+                ) {
+                  console.warn(
+                    "[API] 檢測到不支持的音頻格式，嘗試使用 audio/mpeg"
+                  );
+                  contentType = "audio/mpeg";
+                }
+
+                // 設置響應頭（必須在寫入數據之前設置）
+                if (!res.headersSent) {
+                  res.setHeader("Content-Type", contentType);
+                  res.setHeader("Access-Control-Allow-Origin", "*");
+                  res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
+                  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+                  res.setHeader("Cache-Control", "no-cache");
+                  res.setHeader("Accept-Ranges", "bytes");
+                }
+
+                // 使用 pipe 轉發音頻數據（更可靠）
                 ttsRes.pipe(res);
+
+                ttsRes.on("end", () => {
+                  console.log("[API] TTS 音頻數據傳輸完成");
+                });
+
+                ttsRes.on("error", (error) => {
+                  console.error("[API] TTS 響應流錯誤:", error);
+                  if (!res.headersSent) {
+                    res.statusCode = 500;
+                    res.end(JSON.stringify({ error: "TTS stream error" }));
+                  } else {
+                    res.destroy();
+                  }
+                });
               })
               .on("error", (error) => {
                 console.error("[API] TTS 請求失敗:", error);
-                res.statusCode = 500;
-                res.end(JSON.stringify({ error: "TTS request failed" }));
+                if (!res.headersSent) {
+                  res.statusCode = 500;
+                  res.end(JSON.stringify({ error: "TTS request failed" }));
+                }
               });
           } catch (error) {
             console.error("[API] TTS 處理錯誤:", error);
@@ -377,6 +430,18 @@ export function apiPlugin() {
         }
         next();
       });
+}
+
+export function apiPlugin() {
+  return {
+    name: "api-plugin",
+    configureServer(server) {
+      // 開發模式
+      setupApiMiddlewares(server);
+    },
+    configurePreviewServer(server) {
+      // 預覽模式
+      setupApiMiddlewares(server);
     },
   };
 }

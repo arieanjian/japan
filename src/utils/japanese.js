@@ -43,6 +43,9 @@ export const addSpacesToRomaji = (romaji) => {
   return spaced;
 };
 
+// 檢查是否為開發環境
+const isDev = import.meta.env.DEV;
+
 /**
  * 處理日文輸入，自動轉換為平假名、片假名和羅馬拼音
  * @param {string} japanese - 日文輸入（可以是漢字、假名等）
@@ -60,8 +63,8 @@ export const processJapanese = async (japanese) => {
   const text = japanese.trim();
 
   try {
-    // 如果包含漢字，使用後端 API 轉換
-    if (hasKanji(text)) {
+    // 如果包含漢字，在開發環境中使用後端 API 轉換
+    if (hasKanji(text) && isDev) {
       try {
         console.log("調用轉換 API，文字:", text);
         const response = await fetch("/api/convert", {
@@ -94,7 +97,7 @@ export const processJapanese = async (japanese) => {
         return fallbackConversion(text);
       }
     } else {
-      // 如果不包含漢字，使用 wanakana（更快）
+      // 生產環境或不包含漢字時，使用 wanakana
       return fallbackConversion(text);
     }
   } catch (error) {
@@ -184,49 +187,83 @@ export const speakJapanese = async (text, hiragana = null) => {
 };
 
 /**
- * 使用 Google Translate TTS 播放文字（通過後端代理）
+ * 使用 Google Translate TTS 播放文字
  * @param {string} text - 要播放的文字
  */
 const playGoogleTTS = (text) => {
-  try {
-    // 通過後端 API 代理 Google TTS，避免 CORS 問題
-    const encodedText = encodeURIComponent(text);
+  const encodedText = encodeURIComponent(text);
+
+  // 優先嘗試使用後端 API 代理（適用於開發環境和某些生產環境）
+  const tryBackendProxy = () => {
     const ttsUrl = `/api/tts?text=${encodedText}`;
+    console.log("嘗試使用後端代理 Google TTS:", text);
+    console.log("TTS URL:", ttsUrl);
 
-    console.log("使用 Google TTS 播放（通過後端代理）:", text);
-
-    // 創建音頻元素並播放
     const audio = new Audio(ttsUrl);
 
     audio.onloadstart = () => {
-      console.log("開始載入 Google TTS 音頻");
+      console.log("開始載入 Google TTS 音頻（後端代理）");
+    };
+
+    audio.onloadedmetadata = () => {
+      console.log("音頻元數據已載入，格式:", audio.readyState);
     };
 
     audio.oncanplay = () => {
-      console.log("Google TTS 音頻可以播放");
+      console.log(
+        "Google TTS 音頻可以播放（後端代理），readyState:",
+        audio.readyState
+      );
     };
 
-    audio.onerror = (e) => {
-      console.error("Google TTS 播放失敗:", e);
-      console.error("錯誤詳情:", audio.error);
-      // 如果 Google TTS 失敗，回退到 Web Speech API
-      fallbackToWebSpeech(text);
+    audio.oncanplaythrough = () => {
+      console.log("Google TTS 音頻可以完整播放（後端代理）");
     };
 
     audio.onended = () => {
-      console.log("Google TTS 播放完成");
+      console.log("Google TTS 播放完成（後端代理）");
     };
 
+    audio.onerror = (e) => {
+      console.error("後端代理音頻錯誤:", e);
+      console.error("音頻錯誤詳情:", {
+        error: audio.error,
+        code: audio.error?.code,
+        message: audio.error?.message,
+        networkState: audio.networkState,
+        readyState: audio.readyState,
+      });
+      // 後端代理失敗，直接回退到 Web Speech API（不嘗試直接調用 Google TTS，因為會 404）
+      fallbackToWebSpeech(text);
+    };
+
+    audio.onstalled = () => {
+      console.warn("音頻載入停滯");
+    };
+
+    audio.onabort = () => {
+      console.warn("音頻載入被中止");
+    };
+
+    // 先檢查音頻是否支持
+    audio.load();
+
     audio.play().catch((error) => {
-      console.error("播放語音失敗:", error);
-      // 如果 Google TTS 失敗，回退到 Web Speech API
+      console.error("後端代理播放失敗:", error);
+      console.error("錯誤詳情:", {
+        name: error.name,
+        message: error.message,
+        networkState: audio.networkState,
+        readyState: audio.readyState,
+        error: audio.error,
+      });
+      // 後端代理失敗，直接回退到 Web Speech API
       fallbackToWebSpeech(text);
     });
-  } catch (error) {
-    console.error("語音播放錯誤:", error);
-    // 回退到 Web Speech API
-    fallbackToWebSpeech(text);
-  }
+  };
+
+  // 先嘗試後端代理（如果可用）
+  tryBackendProxy();
 };
 
 /**
@@ -274,29 +311,39 @@ const playSegmentsSequentially = (segments, index) => {
     return;
   }
 
-  const audio = new Audio();
-  const encodedText = encodeURIComponent(segments[index]);
-  // 通過後端 API 代理
-  audio.src = `/api/tts?text=${encodedText}`;
+  const segment = segments[index];
+  const encodedText = encodeURIComponent(segment);
 
-  audio.onended = () => {
-    // 播放下一段
-    playSegmentsSequentially(segments, index + 1);
+  // 優先嘗試後端代理
+  const tryBackendProxy = () => {
+    const audio = new Audio();
+    audio.src = `/api/tts?text=${encodedText}`;
+
+    audio.onended = () => {
+      // 播放下一段
+      playSegmentsSequentially(segments, index + 1);
+    };
+
+    audio.onerror = () => {
+      console.warn(`片段 ${index + 1} 後端代理失敗，回退到 Web Speech API`);
+      // 後端代理失敗，直接回退到 Web Speech API（不嘗試直接調用 Google TTS，因為會 404）
+      const remainingText = segments.slice(index).join("");
+      fallbackToWebSpeech(remainingText);
+    };
+
+    audio.play().catch((error) => {
+      console.warn(
+        `片段 ${index + 1} 後端代理播放失敗，回退到 Web Speech API:`,
+        error
+      );
+      // 後端代理失敗，直接回退到 Web Speech API
+      const remainingText = segments.slice(index).join("");
+      fallbackToWebSpeech(remainingText);
+    });
   };
 
-  audio.onerror = () => {
-    console.error(`播放片段 ${index + 1} 失敗，回退到 Web Speech API`);
-    // 回退到 Web Speech API 播放剩餘內容
-    const remainingText = segments.slice(index).join("");
-    fallbackToWebSpeech(remainingText);
-  };
-
-  audio.play().catch((error) => {
-    console.error("播放語音失敗:", error);
-    // 回退到 Web Speech API
-    const remainingText = segments.slice(index).join("");
-    fallbackToWebSpeech(remainingText);
-  });
+  // 先嘗試後端代理
+  tryBackendProxy();
 };
 
 /**
